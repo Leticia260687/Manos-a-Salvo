@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Simulador 3D para personal de planta sobre el cuidado de las manos: cortes, atrapamiento y químicos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='19' fill='%231D5AA6'/%3E%3C/svg%3E">
+<title>Manos a Salvo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+:root{padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)} body{margin:0} [hidden]{display:none!important} img{max-width:100%}
+/* Layout: escena 3D a la izquierda (arriba y fija en celular) + panel de decisiones con lenguaje de señalética industrial */
+:root{
+  --bg:#E3E8EC; --surface:#F6F8FA; --surface-2:#ECF0F3; --ink:#14202B; --muted:#526170; --line:#C6D0D8;
+  --stage:#D3DCE3; --accent:#F2B705; --accent-ink:#1B1500; --danger:#C8322A; --danger-soft:#FBE3E1;
+  --safe:#1C7F47; --safe-soft:#DDF2E5; --info:#1D5AA6; --info-soft:#E0EAF7;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E141A; --surface:#16202A; --surface-2:#1C2833; --ink:#E7EDF2; --muted:#9AA8B5; --line:#2B3946;
+  --stage:#121B24; --accent:#F5C12B; --accent-ink:#1B1500; --danger:#FF6E61; --danger-soft:#3A1D1B;
+  --safe:#43C77E; --safe-soft:#15301F; --info:#62A0EC; --info-soft:#17283D; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0E141A; --surface:#16202A; --surface-2:#1C2833; --ink:#E7EDF2; --muted:#9AA8B5; --line:#2B3946;
+  --stage:#121B24; --accent:#F5C12B; --accent-ink:#1B1500; --danger:#FF6E61; --danger-soft:#3A1D1B;
+  --safe:#43C77E; --safe-soft:#15301F; --info:#62A0EC; --info-soft:#17283D; color-scheme:dark }
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+*{box-sizing:border-box}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--info);outline-offset:2px}
+
+.app{display:flex;flex-direction:column;min-height:100%}
+.bar{background:var(--surface);border-bottom:1px solid var(--line);position:relative;z-index:5}
+.bar-in{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-block:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--f-display);font-weight:700;font-size:1.35rem;letter-spacing:.02em;text-transform:uppercase}
+.brand-mark{width:30px;height:30px;flex:none}
+.steps{display:flex;gap:6px;flex:1;min-width:0;justify-content:center}
+.step{height:6px;flex:1;max-width:56px;border-radius:3px;background:var(--line);transition:background .3s}
+.step.done{background:var(--ink)}
+.step.now{background:var(--accent)}
+.btn-link{background:none;border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:.9rem}
+.btn-link:hover{border-color:var(--ink)}
+
+.layout{flex:1;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);min-height:0}
+.stage{position:relative;background:var(--stage);min-height:0;overflow:hidden;touch-action:pan-y}
+#scene{display:block;width:100%;height:100%;cursor:grab}
+#scene:active{cursor:grabbing}
+.stage-tag{position:absolute;left:16px;top:14px;display:flex;align-items:center;gap:8px;background:var(--accent);color:var(--accent-ink);
+  font-family:var(--f-display);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.9rem;padding:4px 10px;border-radius:3px}
+.stage-hint{position:absolute;right:16px;bottom:12px;font-size:.78rem;color:var(--muted);letter-spacing:.04em}
+.flash{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 0 transparent;transition:box-shadow .25s}
+.flash.bad{box-shadow:inset 0 0 0 10px var(--danger),inset 0 0 120px 10px color-mix(in srgb,var(--danger) 45%,transparent)}
+.flash.good{box-shadow:inset 0 0 0 6px var(--safe)}
+.nogl{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
+
+.panel{overflow-y:auto;background:var(--bg);min-height:0}
+.panel-in{max-width:620px;margin:0 auto;padding-block:28px 40px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+
+.eyebrow{font-family:var(--f-display);font-weight:700;font-size:.85rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.05;margin:0;text-wrap:balance}
+h1{font-size:clamp(2.4rem,5vw,3.6rem);text-transform:uppercase;letter-spacing:.01em}
+h2{font-size:clamp(1.8rem,3.4vw,2.4rem);text-transform:uppercase}
+h3{font-size:1.25rem;text-transform:uppercase;letter-spacing:.03em}
+p{margin:0;max-width:62ch}
+.lead{font-size:1.1rem;color:var(--ink)}
+.muted{color:var(--muted)}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip-static{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:.88rem;font-weight:500;background:var(--surface)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:6px;padding:14px 22px;cursor:pointer;
+  font-family:var(--f-display);font-weight:700;font-size:1.15rem;letter-spacing:.06em;text-transform:uppercase;transition:transform .12s,background .2s}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--ink);color:var(--bg)}
+.btn-primary:hover{background:color-mix(in srgb,var(--ink) 85%,var(--accent))}
+.btn-ghost{background:transparent;border:1.5px solid var(--ink)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:12px;flex-wrap:wrap}
+
+.sign{display:flex;gap:14px;align-items:center}
+.sign svg{width:56px;height:56px;flex:none}
+.situ{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.situ .place{font-size:.8rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+.opts{display:flex;flex-direction:column;gap:10px}
+.opt{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;text-align:left;background:var(--surface);border:1.5px solid var(--line);
+  border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .2s,background .2s,transform .12s}
+.opt:hover:not([disabled]){border-color:var(--ink);transform:translateX(2px)}
+.opt .k{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);font-family:var(--f-display);font-weight:700;font-size:1.1rem}
+.opt[disabled]{cursor:default}
+.opt.is-bad{border-color:var(--danger);background:var(--danger-soft)}
+.opt.is-bad .k{background:var(--danger);color:#fff}
+.opt.is-good{border-color:var(--safe);background:var(--safe-soft)}
+.opt.is-good .k{background:var(--safe);color:#fff}
+.opt.dim{opacity:.55}
+
+.result{border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:12px;border-left:6px solid var(--danger);background:var(--surface);animation:rise .4s ease both}
+.result.ok{border-left-color:var(--safe)}
+.result .verdict{font-family:var(--f-display);font-weight:700;font-size:1.5rem;text-transform:uppercase;color:var(--danger)}
+.result.ok .verdict{color:var(--safe)}
+.note{display:grid;grid-template-columns:auto 1fr;gap:10px;font-size:.95rem;padding-top:10px;border-top:1px dashed var(--line)}
+.note b{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.08em;font-size:.85rem;padding-top:2px;color:var(--muted);min-width:84px}
+@keyframes rise{from{opacity:.0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.grid-chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.tog{border:1.5px solid var(--line);background:var(--surface);border-radius:8px;padding:12px;text-align:left;cursor:pointer;font-weight:500;transition:all .18s;display:flex;gap:8px;align-items:center}
+.tog::before{content:"";width:16px;height:16px;border-radius:4px;border:1.5px solid var(--muted);flex:none;transition:all .18s}
+.tog[aria-pressed="true"]{border-color:var(--ink);background:var(--surface-2)}
+.tog[aria-pressed="true"]::before{background:var(--accent);border-color:var(--ink)}
+.counter{font-family:var(--f-display);font-size:1.3rem;font-weight:700;text-transform:uppercase}
+.counter span{font-size:2.2rem;color:var(--ink);background:var(--accent);color:var(--accent-ink);padding:0 10px;border-radius:4px;margin-right:6px;font-variant-numeric:tabular-nums}
+.callout{background:var(--ink);color:var(--bg);border-radius:8px;padding:18px 20px;display:flex;flex-direction:column;gap:6px}
+.callout .big{font-family:var(--f-display);font-size:1.6rem;font-weight:700;text-transform:uppercase;line-height:1.1}
+
+.score{display:flex;gap:16px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 18px}
+.score .n{font-family:var(--f-display);font-size:2.6rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+
+form{display:flex;flex-direction:column;gap:16px}
+label{font-weight:600;font-size:.95rem;display:block;margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;background:var(--surface);border:1.5px solid var(--line);border-radius:6px;padding:12px;font-size:1rem}
+.field textarea{min-height:120px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--ink);outline:none}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stars{display:flex;gap:6px}
+.star{width:44px;height:44px;border:1.5px solid var(--line);background:var(--surface);border-radius:6px;cursor:pointer;display:grid;place-items:center;font-size:1.4rem;color:var(--line);transition:all .15s}
+.star.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.err{color:var(--danger);font-size:.9rem;font-weight:600}
+.store-note{font-size:.85rem;color:var(--muted);display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--safe)}
+
+.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sum{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.sum .v{font-family:var(--f-display);font-size:2rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.sum .l{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;overflow-wrap:anywhere;hyphens:auto}
+.wall{display:flex;flex-direction:column;gap:10px}
+.entry{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.entry .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.entry .who{font-weight:600}
+.entry .when{font-size:.8rem;color:var(--muted)}
+.entry .st{color:var(--accent);letter-spacing:2px;font-size:.95rem}
+:root[data-theme="light"] .entry .st{color:#A87D00}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .entry .st{color:#A87D00}}
+.entry .txt{overflow-wrap:anywhere;white-space:pre-wrap}
+.entry .tags{display:flex;flex-wrap:wrap;gap:6px}
+.entry .tags span{font-size:.78rem;background:var(--surface-2);border-radius:999px;padding:2px 10px;color:var(--muted)}
+.empty{border:1.5px dashed var(--line);border-radius:8px;padding:22px;text-align:center;color:var(--muted)}
+
+@media (max-width:900px){
+  html,body{height:auto}
+  .layout{display:block}
+  .stage{position:sticky;top:env(safe-area-inset-top,0px);height:40vh;height:40svh;min-height:240px;z-index:4;border-bottom:1px solid var(--line)}
+  .panel{overflow:visible}
+  .result{scroll-margin-top:calc(max(40svh,240px) + 12px)}
+  .panel-in{padding-block:22px 48px}
+  .steps .step{max-width:none}
+  .bar-in{gap:10px}
+  .steps{order:3;flex-basis:100%}
+}
+@media (min-width:901px){ .app{height:100%} }
+@media (max-width:480px){ .row2{grid-template-columns:1fr} .summary .v{font-size:1.6rem} .sum{padding:10px} .sum .l{font-size:.7rem;letter-spacing:.03em} .brand{font-size:1.15rem} }
+@media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar"><div class="bar-in">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="19" fill="var(--info)"/><path d="M14 30v-9.5c0-1 .8-1.8 1.8-1.8s1.7.8 1.7 1.8V22V12.6c0-1 .8-1.8 1.8-1.8s1.7.8 1.7 1.8V21v-9.8c0-1 .8-1.8 1.8-1.8s1.8.8 1.8 1.8V21v-8c0-1 .8-1.7 1.7-1.7s1.8.8 1.8 1.7v11c0 4-2.6 7-6.6 7h-1.6c-2.2 0-3.6-.7-4.8-2.2L9.8 23.6c-.6-.8-.4-1.9.4-2.4s1.8-.3 2.4.4L14 23.4" fill="#fff"/></svg>
+      Manos a Salvo
+    </div>
+    <div class="steps" id="steps" aria-label="Progreso"></div>
+    <button class="btn-link" id="goWall" type="button">Experiencias</button>
+  </div></header>
+
+  <main class="layout">
+    <section class="stage" id="stage" aria-label="Escena 3D del trabajador">
+      <canvas id="scene"></canvas>
+      <div class="stage-tag" id="stageTag">Bienvenida</div>
+      <div class="stage-hint" id="stageHint">Arrastra para girar la escena</div>
+      <div class="flash" id="flash"></div>
+    </section>
+
+    <section class="panel" id="panel"><div class="panel-in" id="view"></div></section>
+  </main>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="config.js"></script>
+<script>
+(function(){
+"use strict";
+/* ============================ CONTENIDO ============================ */
+const SCEN = [
+ { id:"cortes", tag:"Riesgo de corte", title:"Estación de corte de lámina", place:"Área de corte y empaque",
+   situ:"Tienes que retirar rebabas de una lámina recién cortada y abrir varias cajas con cúter. La línea va retrasada y te piden rapidez.",
+   q:"¿Cómo lo haces?",
+   opts:[
+    {t:"Lo hago sin guantes. Son cinco minutos y así siento mejor la pieza.", ok:false, glove:"none",
+     head:"Corte en la palma", body:"La orilla de una lámina recién cortada funciona como navaja. Un corte en la palma o en los dedos puede alcanzar tendones y nervios: puntadas, semanas de incapacidad y, a veces, pérdida permanente de fuerza o sensibilidad."},
+    {t:"Me pongo guantes de algodón. Algo es mejor que nada.", ok:false, glove:"cotton",
+     head:"Falsa protección", body:"El algodón no detiene un filo; solo te hace sentir protegido y te confías más. El guante debe corresponder al riesgo: para filos se usan guantes anticorte con nivel certificado."},
+    {t:"Uso guantes anticorte del nivel indicado, cúter retráctil y corto siempre en dirección contraria a mi cuerpo.", ok:true, glove:"cut",
+     head:"Decisión segura", body:"El guante anticorte correcto, la herramienta adecuada y la técnica reducen el riesgo de forma drástica. Diez segundos para ponértelos valen más que semanas de recuperación."}
+   ],
+   key:"Revisa en la etiqueta del guante su nivel de resistencia al corte (por ejemplo, ANSI/ISEA 105 o EN 388) y que coincida con lo que indica el análisis de riesgo de tu puesto. El equipo de protección personal se rige por la NOM-017-STPS-2008.",
+   home:"Al picar verduras, abrir latas o recoger vidrio roto. Los cortes en manos también son de las lesiones más comunes en casa." },
+ { id:"atrapamiento", tag:"Riesgo de atrapamiento", title:"Banda transportadora con rodillos", place:"Línea de transporte",
+   situ:"Una pieza quedó atorada entre los rodillos. La banda sigue en movimiento y te piden que la línea no se detenga.",
+   q:"¿Qué haces?",
+   opts:[
+    {t:"Meto la mano rápido y jalo la pieza. La banda va lento.", ok:false, glove:"none",
+     head:"Atrapamiento", body:"Una banda “lenta” jala con más fuerza de la que tu brazo puede resistir, y la máquina es más rápida que tu reacción. En un instante los dedos quedan entre los rodillos: aplastamiento, fracturas o amputación."},
+    {t:"Me pongo guantes gruesos y la empujo con la máquina encendida.", ok:false, glove:"thick",
+     head:"El guante te jala", body:"Cerca de partes que giran, un guante puede engancharse y arrastrar la mano completa. Ningún guante protege contra un atrapamiento: lo que te protege es que la máquina esté detenida y bloqueada."},
+    {t:"Detengo la máquina, coloco mi candado y etiqueta (bloqueo y etiquetado), verifico energía cero y retiro la pieza.", ok:true, glove:"none", lock:true,
+     head:"Energía cero, manos seguras", body:"Con la máquina bloqueada y la energía verificada en cero, nadie puede arrancarla mientras tus manos están dentro. Esos dos minutos separan un día normal de una amputación."}
+   ],
+   key:"Las guardas y dispositivos de seguridad nunca se retiran con la máquina en operación. La NOM-004-STPS-1999 establece la protección en maquinaria y el procedimiento para bloquear la energía antes de intervenir.",
+   home:"Licuadoras, podadoras, ventiladores y puertas de auto atrapan dedos. Desconecta o detén antes de meter la mano." },
+ { id:"quimicos", tag:"Riesgo químico", title:"Trasvase de desengrasante", place:"Almacén de sustancias",
+   situ:"Debes pasar desengrasante alcalino de un tambo a un recipiente más pequeño. La Hoja de Datos de Seguridad no está a la mano y el recipiente nuevo no tiene etiqueta.",
+   q:"¿Cómo procedes?",
+   opts:[
+    {t:"Uso los guantes de látex que tengo cerca. Un guante es un guante.", ok:false, glove:"latex",
+     head:"Guante equivocado", body:"No todos los guantes resisten todas las sustancias. Algunos químicos atraviesan ciertos materiales en minutos sin que lo notes. La Hoja de Datos de Seguridad indica qué material de guante usar."},
+    {t:"Consulto la Hoja de Datos de Seguridad, uso guantes de nitrilo o del material indicado, lentes de seguridad y etiqueto el recipiente.", ok:true, glove:"nitrile", goggles:true,
+     head:"Decisión segura", body:"La Hoja de Datos de Seguridad te dice qué protección usar y qué hacer si hay contacto. Con el guante correcto, protección ocular y el recipiente etiquetado, proteges tus manos y a quien lo use después."},
+    {t:"Lo hago sin guantes y me lavo bien al terminar. Si no arde, no pasa nada.", ok:false, glove:"none",
+     head:"Daño silencioso", body:"Muchas sustancias dañan la piel sin dolor inmediato. El contacto repetido causa dermatitis, grietas y quemaduras químicas, y algunas se absorben por la piel hacia el cuerpo."}
+   ],
+   key:"Toda sustancia debe estar identificada y contar con su Hoja de Datos de Seguridad, según la NOM-018-STPS-2015. Si hay contacto con la piel, lava con abundante agua al menos 15 minutos y reporta de inmediato.",
+   home:"Cloro, desengrasantes y destapacaños causan quemaduras en las manos. Usa guantes también al limpiar en casa." }
+];
+const DAILY = ["Abrazar a mi familia","Comer por mi cuenta","Manejar o tomar el transporte","Escribir un mensaje","Vestirme y abotonarme","Jugar con mis hijos o mascotas","Preparar comida","Practicar mi deporte o pasatiempo","Saludar de mano","Trabajar y ganar mi sustento"];
+const PROMISES = ["Uso el guante correcto para cada riesgo","Nunca meto la mano en una máquina en movimiento","Bloqueo y etiqueto antes de intervenir un equipo","Reviso la Hoja de Datos de Seguridad antes de usar un químico","Reporto guantes dañados o faltantes","Cuido mis manos también en casa"];
+const AREAS = ["Producción","Mantenimiento","Almacén","Calidad","Logística","Seguridad e higiene","Administración","Otra"];
+const SIGN = {
+  cortes:'<svg viewBox="0 0 60 54" aria-hidden="true"><path d="M30 3 57 51H3Z" fill="#F2B705" stroke="#111" stroke-width="4" stroke-linejoin="round"/><path d="M17 41 36 22l5 2-17 19z" fill="#111"/><path d="M36 22l7-7 3 3-5 6z" fill="#111"/></svg>',
+  atrapamiento:'<svg viewBox="0 0 60 54" aria-hidden="true"><path d="M30 3 57 51H3Z" fill="#F2B705" stroke="#111" stroke-width="4" stroke-linejoin="round"/><circle cx="23" cy="39" r="7" fill="#111"/><circle cx="37" cy="39" r="7" fill="#111"/><path d="M30 18v13" stroke="#111" stroke-width="4" stroke-linecap="round"/><path d="M25 25l5 6 5-6" fill="none" stroke="#111" stroke-width="3"/></svg>',
+  quimicos:'<svg viewBox="0 0 60 60" aria-hidden="true"><path d="M30 3 57 30 30 57 3 30Z" fill="#fff" stroke="#D3261C" stroke-width="5" stroke-linejoin="round"/><path d="M20 17l7 4-4 7-7-4z" fill="#111"/><path d="M34 17l7 4-4 7-7-4z" fill="#111"/><circle cx="21" cy="33" r="2" fill="#111"/><circle cx="37" cy="33" r="2" fill="#111"/><rect x="15" y="38" width="12" height="5" fill="#111"/><path d="M33 38h12v5H33z" fill="#111"/></svg>'
+};
+
+/* ============================ ESTADO ============================ */
+const S = { step:"intro", answers:[null,null,null], daily:new Set(), promises:new Set() };
+const ORDER = ["intro","s0","s1","s2","reflect","feedback","wall"];
+const view = document.getElementById("view");
+const stepsEl = document.getElementById("steps");
+const tagEl = document.getElementById("stageTag");
+const flashEl = document.getElementById("flash");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let timers = [];
+function later(ms, fn){ timers.push(setTimeout(fn, reduceMotion ? Math.min(ms, 300) : ms)); }
+function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+function h(tag, attrs, ...kids){
+  const el = document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k === "class") el.className = attrs[k];
+    else if(k === "html") el.innerHTML = attrs[k];
+    else if(k.startsWith("on")) el.addEventListener(k.slice(2), attrs[k]);
+    else if(attrs[k] !== false && attrs[k] != null) el.setAttribute(k, attrs[k]);
+  }
+  for(const c of kids.flat()){ if(c == null || c === false) continue; el.appendChild(typeof c === "string" ? document.createTextNode(c) : c); }
+  return el;
+}
+function flash(kind){ flashEl.className = "flash " + kind; later(900, () => flashEl.className = "flash"); }
+function renderSteps(){
+  stepsEl.innerHTML = "";
+  const idx = ORDER.indexOf(S.step);
+  ORDER.slice(0,6).forEach((s,i) => stepsEl.appendChild(h("div",{class:"step"+(i<idx?" done":i===idx?" now":""),title:s})));
+}
+function scrollTop(){
+  const panel = document.getElementById("panel");
+  if(innerWidth > 900) panel.scrollTop = 0; else window.scrollTo({top:0,behavior:reduceMotion?"auto":"smooth"});
+}
+function go(step){
+  clearTimers(); S.step = step; renderSteps(); view.innerHTML = "";
+  ({intro:viewIntro, s0:()=>viewScenario(0), s1:()=>viewScenario(1), s2:()=>viewScenario(2), reflect:viewReflect, feedback:viewFeedback, wall:viewWall})[step]();
+  scrollTop();
+}
+
+/* ============================ PANTALLAS ============================ */
+function viewIntro(){
+  tagEl.textContent = "Bienvenida"; W3.setScene("intro"); W3.setGlove("none"); W3.goggles(false); W3.pose("wave");
+  view.append(
+    h("div",{class:"eyebrow"},"Simulador de seguridad · Personal de planta"),
+    h("h1",null,"Tus manos no tienen repuesto"),
+    h("p",{class:"lead"},"Vas a vivir tres situaciones reales de planta: cortes, atrapamiento y químicos. En cada una decides qué hacer y ves lo que le pasa a tus manos."),
+    h("div",{class:"meta"}, h("span",{class:"chip-static"},"3 situaciones"), h("span",{class:"chip-static"},"Unos 5 minutos"), h("span",{class:"chip-static"},"Al final dejas tu experiencia")),
+    h("div",{class:"callout"}, h("div",{class:"big"},"Cada mano tiene 27 huesos"), h("p",null,"Además de músculos, tendones y nervios que trabajan juntos en cada movimiento. Una lesión grave puede cambiar para siempre cómo trabajas, cómo comes y cómo abrazas.")),
+    h("div",{class:"actions"}, h("button",{class:"btn btn-primary",type:"button",onclick:()=>go("s0")},"Comenzar"))
+  );
+}
+
+function viewScenario(i){
+  const sc = SCEN[i];
+  tagEl.textContent = sc.tag; W3.setScene(sc.id); W3.setGlove("none"); W3.goggles(false); W3.pose("think");
+  later(1400, () => W3.pose("work"));
+  const optsEl = h("div",{class:"opts",role:"group","aria-label":"Opciones"});
+  const resEl = h("div",{"aria-live":"polite"});
+  sc.opts.forEach((o,k) => {
+    const b = h("button",{class:"opt",type:"button",onclick:()=>choose(k)}, h("span",{class:"k"},"ABC"[k]), h("span",null,o.t));
+    optsEl.appendChild(b);
+  });
+  function choose(k){
+    const o = sc.opts[k]; S.answers[i] = {k, ok:o.ok};
+    [...optsEl.children].forEach((b,j) => { b.disabled = true; if(j===k) b.classList.add(o.ok?"is-good":"is-bad"); else b.classList.add("dim"); });
+    W3.play(sc.id, o, () => {
+      const next = i < 2 ? "s"+(i+1) : "reflect";
+      resEl.appendChild(h("div",{class:"result"+(o.ok?" ok":"")},
+        h("div",{class:"verdict"}, o.ok ? "✓ " + o.head : "✕ " + o.head),
+        h("p",null,o.body),
+        !o.ok && h("p",null, h("b",null,"Lo seguro: "), sc.opts.find(x=>x.ok).t),
+        h("div",{class:"note"}, h("b",null,"Dato clave"), h("span",null,sc.key)),
+        h("div",{class:"note"}, h("b",null,"En casa"), h("span",null,sc.home)),
+        h("div",{class:"actions"}, h("button",{class:"btn btn-primary",type:"button",onclick:()=>go(next)}, i<2 ? "Siguiente situación" : "Continuar"))
+      ));
+      if(innerWidth <= 900) resEl.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"start"});
+    });
+  }
+  view.append(
+    h("div",{class:"sign",html:SIGN[sc.id]}),
+    h("div",null, h("div",{class:"eyebrow"},"Situación "+(i+1)+" de 3 · "+sc.tag), h("h2",null,sc.title)),
+    h("div",{class:"situ"}, h("div",{class:"place"},sc.place), h("p",null,sc.situ)),
+    h("h3",null,sc.q), optsEl, resEl
+  );
+}
+
+function viewReflect(){
+  tagEl.textContent = "Reflexión"; W3.setScene("intro"); W3.setGlove("none"); W3.goggles(false); W3.pose("look");
+  const counter = h("div",{class:"counter"}, h("span",null,"0"), "cosas que importan");
+  const grid = h("div",{class:"grid-chips"});
+  DAILY.forEach(d => {
+    const b = h("button",{class:"tog",type:"button","aria-pressed":S.daily.has(d)?"true":"false"}, d);
+    b.onclick = () => { S.daily.has(d) ? S.daily.delete(d) : S.daily.add(d); b.setAttribute("aria-pressed", S.daily.has(d)); upd(); };
+    grid.appendChild(b);
+  });
+  const prom = h("div",{class:"grid-chips"});
+  PROMISES.forEach(d => {
+    const b = h("button",{class:"tog",type:"button","aria-pressed":S.promises.has(d)?"true":"false"}, d);
+    b.onclick = () => { S.promises.has(d) ? S.promises.delete(d) : S.promises.add(d); b.setAttribute("aria-pressed", S.promises.has(d)); upd(); };
+    prom.appendChild(b);
+  });
+  const nextBtn = h("button",{class:"btn btn-primary",type:"button",onclick:()=>go("feedback")},"Dejar mi experiencia");
+  const hint = h("p",{class:"muted"},"Elige al menos un compromiso para continuar.");
+  function upd(){
+    counter.firstChild.textContent = S.daily.size;
+    nextBtn.disabled = S.promises.size === 0; hint.hidden = S.promises.size > 0;
+    if(S.promises.size) W3.pose("show");
+  }
+  const ok = S.answers.filter(a=>a&&a.ok).length;
+  view.append(
+    h("div",{class:"eyebrow"},"Fuera de la planta"),
+    h("h2",null,"Lo que hacen tus manos cada día"),
+    h("div",{class:"score"}, h("div",{class:"n"}, ok+"/3"), h("p",null, ok===3 ? "Tomaste las tres decisiones seguras. Ahora piensa en por qué vale la pena hacerlo todos los días, también cuando nadie te ve." : "Tomaste "+ok+" de 3 decisiones seguras. En la planta no hay segundo intento: por eso vale la pena practicarlo aquí.")),
+    h("p",{class:"lead"},"Marca lo que hiciste hoy o haces casi todos los días con tus manos."),
+    grid, counter,
+    h("div",{class:"callout"}, h("div",{class:"big"},"Ninguna de estas cosas se hace igual con una mano lesionada"), h("p",null,"Los accidentes de manos casi nunca pasan por falta de conocimiento. Pasan por prisa, costumbre y exceso de confianza.")),
+    h("h3",null,"Mi compromiso"),
+    prom, hint,
+    h("div",{class:"actions"}, nextBtn)
+  );
+  upd(); W3.pose("look");
+}
+
+function viewFeedback(){
+  tagEl.textContent = "Tu experiencia"; W3.setScene("intro"); W3.setGlove("cut"); W3.pose("show");
+  let rating = 0;
+  const stars = h("div",{class:"stars",role:"radiogroup","aria-label":"Calificación"});
+  for(let n=1;n<=5;n++){
+    const b = h("button",{class:"star",type:"button",role:"radio","aria-checked":"false","aria-label":n+" de 5"},"★");
+    b.onclick = () => { rating = n; [...stars.children].forEach((s,j)=>{ s.classList.toggle("on", j<n); s.setAttribute("aria-checked", j===n-1); }); };
+    stars.appendChild(b);
+  }
+  const err = h("p",{class:"err",hidden:true});
+  const status = h("p",{class:"store-note"}, h("span",{class:"dot"+(Store.mode==="shared"?" live":"")}), Store.label());
+  const saveBtn = h("button",{class:"btn btn-primary",type:"submit"},"Guardar mi experiencia");
+  const form = h("form",{novalidate:true},
+    h("div",{class:"row2"},
+      h("div",{class:"field"}, h("label",{for:"f-nombre"},"Nombre (opcional)"), h("input",{id:"f-nombre",maxlength:"60",autocomplete:"name",placeholder:"Puedes dejarlo en blanco"})),
+      h("div",{class:"field"}, h("label",{for:"f-area"},"Área"), h("select",{id:"f-area"}, h("option",{value:""},"Selecciona tu área"), AREAS.map(a=>h("option",{value:a},a))))
+    ),
+    h("div",{class:"field"}, h("label",null,"¿Qué tanto te hizo reflexionar?"), stars),
+    h("div",{class:"field"}, h("label",{for:"f-com"},"Tu experiencia o comentario"), h("textarea",{id:"f-com",maxlength:"600",placeholder:"¿Qué te llevas de esta actividad? ¿Has vivido o visto un accidente de manos?"})),
+    err, status,
+    h("div",{class:"actions"}, saveBtn)
+  );
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const nombre = form.querySelector("#f-nombre").value.trim();
+    const area = form.querySelector("#f-area").value;
+    const comentario = form.querySelector("#f-com").value.trim();
+    const miss = [];
+    if(!area) miss.push("tu área"); if(!rating) miss.push("una calificación"); if(comentario.length < 5) miss.push("un comentario de al menos 5 caracteres");
+    if(miss.length){ err.textContent = "Falta " + miss.join(", ") + "."; err.hidden = false; return; }
+    err.hidden = true; saveBtn.disabled = true; saveBtn.textContent = "Guardando…";
+    const entry = { nombre: nombre || "Anónimo", area, calificacion: rating, comentario, compromisos: [...S.promises], aciertos: S.answers.filter(a=>a&&a.ok).length, fecha: new Date().toISOString() };
+    try { await Store.save(entry); W3.pose("wave"); flash("good"); go("wall"); }
+    catch(ex){ err.textContent = "No se pudo guardar: " + (ex && ex.message ? ex.message : "intenta de nuevo") + "."; err.hidden = false; saveBtn.disabled = false; saveBtn.textContent = "Guardar mi experiencia"; }
+  });
+  view.append(
+    h("div",{class:"eyebrow"},"Último paso"),
+    h("h2",null,"Deja tu experiencia"),
+    h("p",{class:"lead"},"Tu comentario se queda en el simulador para que tus compañeros lo lean. Cuéntanos qué te llevas."),
+    form
+  );
+}
+
+function viewWall(){
+  tagEl.textContent = "Experiencias"; W3.setScene("intro"); W3.pose("wave");
+  const sum = h("div",{class:"summary"});
+  const list = h("div",{class:"wall"}, h("div",{class:"empty"},"Cargando experiencias…"));
+  const status = h("p",{class:"store-note"}, h("span",{class:"dot"+(Store.mode==="shared"?" live":"")}), Store.label());
+  function draw(items){
+    if(items === null){ list.innerHTML = ""; list.appendChild(h("div",{class:"empty"},"No se pudieron cargar las experiencias. Revisa tu conexión e inténtalo de nuevo en un momento.")); return; }
+    const n = items.length;
+    const avg = n ? (items.reduce((a,b)=>a+(+b.calificacion||0),0)/n) : 0;
+    const acc = n ? Math.round(items.reduce((a,b)=>a+(+b.aciertos||0),0)/(n*3)*100) : 0;
+    sum.innerHTML = "";
+    [[n,"Participantes"],[n?avg.toFixed(1):"—","Reflexión / 5"],[n?acc+"%":"—","Decisiones seguras"]].forEach(([v,l])=>sum.appendChild(h("div",{class:"sum"},h("div",{class:"v"},String(v)),h("div",{class:"l"},l))));
+    list.innerHTML = "";
+    if(!n){ list.appendChild(h("div",{class:"empty"},"Todavía no hay experiencias. Completa el recorrido y deja la primera.")); return; }
+    items.forEach(it => {
+      const d = new Date(it.fecha); const st = Math.max(0,Math.min(5,+it.calificacion||0));
+      list.appendChild(h("article",{class:"entry"},
+        h("div",{class:"top"}, h("span",{class:"who"}, String(it.nombre||"Anónimo") + " · " + String(it.area||"")), h("span",{class:"when"}, isNaN(d) ? "" : d.toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"}))),
+        h("div",{class:"st","aria-label":st+" de 5"}, "★".repeat(st) + "☆".repeat(5-st) + "  ·  " + (+it.aciertos||0) + "/3 decisiones seguras"),
+        h("p",{class:"txt"}, String(it.comentario||"")),
+        Array.isArray(it.compromisos) && it.compromisos.length ? h("div",{class:"tags"}, it.compromisos.slice(0,6).map(c=>h("span",null,String(c)))) : null
+      ));
+    });
+  }
+  view.append(
+    h("div",{class:"eyebrow"},"Lo que dicen tus compañeros"),
+    h("h2",null,"Muro de experiencias"),
+    sum, status, list,
+    h("div",{class:"actions"}, h("button",{class:"btn btn-ghost",type:"button",onclick:()=>{ S.answers=[null,null,null]; S.daily.clear(); S.promises.clear(); go("intro"); }},"Volver a empezar"))
+  );
+  Store.watch(draw);
+}
+
+/* ============================ ALMACENAMIENTO (Supabase) ============================ */
+const CFG = window.MANOS_CONFIG || {};
+const Store = {
+  LS:"manos-a-salvo-experiencias", timer:null,
+  get mode(){ return CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && !/PEGA_AQUI/.test(CFG.SUPABASE_URL + CFG.SUPABASE_ANON_KEY) ? "shared" : "local"; },
+  label(){ return this.mode==="shared" ? "Las experiencias se guardan en línea y las ve todo el personal que abre el simulador." : "Modo de prueba: las experiencias se guardan solo en este dispositivo (falta configurar Supabase en config.js)."; },
+  init(){},
+  url(q){ return CFG.SUPABASE_URL.replace(/\/+$/,"") + "/rest/v1/experiencias" + (q||""); },
+  headers(extra){ return Object.assign({ apikey:CFG.SUPABASE_ANON_KEY, Authorization:"Bearer " + CFG.SUPABASE_ANON_KEY, "Content-Type":"application/json" }, extra||{}); },
+  local(){ try{ return JSON.parse(localStorage.getItem(this.LS)||"[]"); }catch(e){ return []; } },
+  async save(entry){
+    if(this.mode==="shared"){
+      const row = { nombre:entry.nombre, area:entry.area, calificacion:entry.calificacion, comentario:entry.comentario, compromisos:entry.compromisos, aciertos:entry.aciertos };
+      const r = await fetch(this.url(), { method:"POST", headers:this.headers({Prefer:"return=minimal"}), body:JSON.stringify(row) });
+      if(!r.ok){ let m = ""; try{ m = (await r.json()).message || ""; }catch(e){} throw new Error("el servidor respondió " + r.status + (m ? " (" + m + ")" : "")); }
+      return;
+    }
+    const arr = this.local(); arr.unshift(entry);
+    try{ localStorage.setItem(this.LS, JSON.stringify(arr.slice(0,300))); }catch(e){ throw new Error("tu navegador no permite guardar datos"); }
+  },
+  async fetchAll(){
+    const r = await fetch(this.url("?select=nombre,area,calificacion,comentario,compromisos,aciertos,fecha:created_at&order=created_at.desc&limit=300"), { headers:this.headers() });
+    if(!r.ok) throw new Error(String(r.status));
+    return r.json();
+  },
+  watch(cb){
+    clearInterval(this.timer);
+    if(this.mode!=="shared"){ cb(this.local()); return; }
+    const load = () => this.fetchAll().then(cb).catch(() => cb(null));
+    load(); this.timer = setInterval(() => { if(S.step==="wall" && !document.hidden) load(); else if(S.step!=="wall") clearInterval(this.timer); }, 20000);
+  }
+};
+
+/* ============================ ESCENA 3D ============================ */
+const W3 = (function(){
+  const api = { setScene(){}, setGlove(){}, goggles(){}, pose(){}, play(id,o,cb){ setTimeout(cb, 300); } };
+  const canvas = document.getElementById("scene");
+  const stage = document.getElementById("stage");
+  if(!window.THREE){ fail(); return api; }
+  let renderer;
+  try{ renderer = new THREE.WebGLRenderer({canvas, antialias:true}); }catch(e){ fail(); return api; }
+  function fail(){ canvas.hidden = true; document.getElementById("stageHint").hidden = true; stage.appendChild(h("div",{class:"nogl"},"Tu dispositivo no pudo mostrar la escena 3D. Puedes completar el simulador sin problema.")); }
+
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function applyTheme(){ const c = new THREE.Color(css("--stage")||"#D3DCE3"); scene.background = c; scene.fog = new THREE.Fog(c, 9, 18); }
+  applyTheme();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7785, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.05); sun.position.set(3,6,4); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024); Object.assign(sun.shadow.camera,{left:-4,right:4,top:4,bottom:-4}); scene.add(sun);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 0.45); rim.position.set(-4,3,-3); scene.add(rim);
+
+  const M = (color, o={}) => new THREE.MeshStandardMaterial(Object.assign({color, roughness:.6, metalness:0}, o));
+  function mesh(geo, mat, x=0,y=0,z=0, parent){ const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true; (parent||scene).add(m); return m; }
+
+  // Piso con franja de seguridad
+  const floor = mesh(new THREE.CircleGeometry(3.2,64), M(0x6f7a85,{roughness:.95}), 0,0,0); floor.rotation.x = -Math.PI/2; floor.castShadow = false;
+  for(let i=0;i<48;i++){
+    const seg = new THREE.Mesh(new THREE.RingGeometry(3.2,3.42,4,1,i/48*Math.PI*2,Math.PI*2/48), M(i%2?0x1b1b1b:0xF2B705,{roughness:.7}));
+    seg.rotation.x = -Math.PI/2; seg.position.y = .002; seg.receiveShadow = true; scene.add(seg);
+  }
+
+  /* ---------- Trabajador ---------- */
+  const skinColor = new THREE.Color(0xC98E62), hurtColor = new THREE.Color(0xC0392B);
+  const mat = {
+    skin:M(0xC98E62,{roughness:.55}), shirt:M(0x2D4466), vest:M(0xF26A1B,{roughness:.5}), strip:M(0xE8EDF2,{roughness:.25,metalness:.3,emissive:0x333333}),
+    pants:M(0x2A3440), boot:M(0x1b1d21,{roughness:.8}), helmet:M(0xF2B705,{roughness:.35}), eye:M(0x111111), hand:M(0xC98E62,{roughness:.55}),
+    goggle:new THREE.MeshStandardMaterial({color:0x9fd3ff,transparent:true,opacity:.55,roughness:.1,metalness:.2}), gogFrame:M(0x222222)
+  };
+  const W = new THREE.Group(); scene.add(W);
+  const hips = new THREE.Group(); hips.position.y = 1.0; W.add(hips);
+  // piernas
+  [-1,1].forEach(s => {
+    mesh(new THREE.CapsuleGeometry(.12,.62,6,12), mat.pants, s*.15,-.42,0, hips);
+    mesh(new THREE.BoxGeometry(.2,.14,.34), mat.boot, s*.15,-.93,.05, hips);
+  });
+  const torso = new THREE.Group(); hips.add(torso);
+  const body = mesh(new THREE.CapsuleGeometry(.33,.5,8,20), mat.vest, 0,.45,0, torso); body.scale.z = .72;
+  [0.28,0.5].forEach(y => { const r = mesh(new THREE.CylinderGeometry(.338,.338,.05,24,1,true), mat.strip, 0,y,0, torso); r.scale.z = .73; });
+  mesh(new THREE.CylinderGeometry(.24,.3,.12,20), mat.pants, 0,.08,0, torso);
+  mesh(new THREE.CylinderGeometry(.08,.09,.12,12), mat.skin, 0,.88,0, torso);
+  const head = new THREE.Group(); head.position.y = 1.0; torso.add(head);
+  mesh(new THREE.SphereGeometry(.23,32,24), mat.skin, 0,.1,0, head);
+  const eyes = [-1,1].map(s => mesh(new THREE.SphereGeometry(.028,12,10), mat.eye, s*.08,.13,.205, head));
+  mesh(new THREE.SphereGeometry(.035,12,10), mat.skin, 0,.07,.225, head);
+  const mouth = mesh(new THREE.TorusGeometry(.05,.012,6,16,Math.PI), mat.eye, 0,.02,.2, head); mouth.rotation.z = Math.PI;
+  const hel = mesh(new THREE.SphereGeometry(.255,32,16,0,Math.PI*2,0,Math.PI/2), mat.helmet, 0,.16,0, head);
+  mesh(new THREE.CylinderGeometry(.3,.3,.025,32), mat.helmet, 0,.17,.03, head);
+  mesh(new THREE.BoxGeometry(.04,.06,.42), mat.helmet, 0,.39,0, head);
+  const gog = new THREE.Group(); gog.position.set(0,.13,.2); head.add(gog);
+  mesh(new THREE.BoxGeometry(.3,.09,.05), mat.goggle, 0,0,.02, gog); mesh(new THREE.BoxGeometry(.32,.025,.06), mat.gogFrame, 0,.05,.02, gog);
+  gog.visible = false;
+  // brazos
+  const arms = {};
+  [-1,1].forEach(s => {
+    const sh = new THREE.Group(); sh.position.set(s*.42,.78,0); torso.add(sh);
+    mesh(new THREE.SphereGeometry(.11,16,12), mat.vest, 0,0,0, sh);
+    mesh(new THREE.CapsuleGeometry(.075,.26,6,12), mat.shirt, 0,-.19,0, sh);
+    const el = new THREE.Group(); el.position.y = -.38; sh.add(el);
+    mesh(new THREE.CapsuleGeometry(.065,.24,6,12), mat.skin, 0,-.16,0, el);
+    const wr = new THREE.Group(); wr.position.y = -.34; el.add(wr);
+    const cuff = mesh(new THREE.CylinderGeometry(.085,.075,.1,14), mat.hand, 0,.03,0, wr); cuff.visible = false;
+    const palm = mesh(new THREE.SphereGeometry(.09,18,14), mat.hand, 0,-.06,0, wr); palm.scale.set(1,1.15,.6);
+    const thumb = mesh(new THREE.CapsuleGeometry(.025,.06,4,8), mat.hand, s*-.07,-.04,.03, wr); thumb.rotation.z = s*.7;
+    for(let f=0;f<4;f++) mesh(new THREE.CapsuleGeometry(.019,.07,4,8), mat.hand, (f-1.5)*.04,-.17,0, wr);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(.2,20,16), new THREE.MeshBasicMaterial({color:0xff3b30,transparent:true,opacity:0,depthWrite:false}));
+    halo.position.y = -.08; wr.add(halo);
+    arms[s] = {sh, el, wr, cuff, halo};
+  });
+
+  /* ---------- Poses ---------- */
+  const P = {
+    idle:{ l:[-.05,0,-.14,-.2], r:[-.05,0,.14,-.2], t:0, hd:[0,0], y:0 },
+    wave:{ l:[-.05,0,-.14,-.2], r:[0,0,2.5,-.3], t:0, hd:[-.05,.15], y:.25, wave:1 },
+    think:{ l:[-.35,0,.25,-1.1], r:[-.55,0,-.3,-2.15], t:.02, hd:[.1,-.2], y:0 },
+    work:{ l:[-.85,0,.12,-.75], r:[-.85,0,-.12,-.75], t:.18, hd:[.45,0], y:0 },
+    reach:{ l:[-.2,0,-.1,-.3], r:[-1.35,0,-.1,-.15], t:.32, hd:[.4,0], y:-.15 },
+    hurt:{ l:[-.75,0,.6,-1.5], r:[-.6,0,-.55,-1.85], t:.32, hd:[.55,.1], y:.2, shake:1 },
+    show:{ l:[-1.0,0,.2,-1.55], r:[-1.0,0,-.2,-1.55], t:-.02, hd:[-.05,0], y:0 },
+    look:{ l:[-.85,0,.32,-1.45], r:[-.85,0,-.32,-1.45], t:.12, hd:[.5,0], y:0 },
+    lock:{ l:[-.1,0,-.1,-.2], r:[-1.1,0,.35,-.9], t:.12, hd:[.3,.35], y:-.1 }
+  };
+  const cur = JSON.parse(JSON.stringify(P.idle)); let target = P.idle;
+  api.pose = name => { target = P[name] || P.idle; };
+
+  /* ---------- Guantes ---------- */
+  const GLOVES = { none:null, cut:0x6f7780, cotton:0xEDE8DC, thick:0x8a5a2b, latex:0xEAD9A4, nitrile:0x2F74D0 };
+  let hurt = 0;
+  api.setGlove = g => { const c = GLOVES[g]; mat.hand.color.set(c==null ? skinColor : c); arms[1].cuff.visible = arms[-1].cuff.visible = c!=null; mat.hand.roughness = g==="nitrile"||g==="latex" ? .35 : .7; hurt = 0; };
+  api.goggles = v => { gog.visible = !!v; };
+
+  /* ---------- Escenarios ---------- */
+  const props = {};
+  const tableMat = M(0x5d6b78,{roughness:.5,metalness:.4});
+  function table(g){ mesh(new THREE.BoxGeometry(1.7,.07,.62), tableMat, 0,.95,0, g); [[-.78,-.26],[.78,-.26],[-.78,.26],[.78,.26]].forEach(([x,z])=>mesh(new THREE.BoxGeometry(.06,.92,.06), tableMat, x,.46,z, g)); }
+  // Intro: señal y tarima
+  props.intro = new THREE.Group(); scene.add(props.intro);
+  (function(){
+    const g = props.intro;
+    const post = mesh(new THREE.CylinderGeometry(.03,.03,1.6,10), M(0x9aa5b1,{metalness:.6,roughness:.3}), -1.4,.8,-.6, g);
+    const signTex = new THREE.CanvasTexture(makeSign()); signTex.encoding = THREE.sRGBEncoding;
+    const sg = mesh(new THREE.CircleGeometry(.32,40), new THREE.MeshStandardMaterial({map:signTex,roughness:.5}), -1.4,1.72,-.57, g);
+    sg.rotation.y = .35;
+    mesh(new THREE.BoxGeometry(.5,.4,.5), M(0xb68a52,{roughness:.9}), 1.35,.2,-.5, g);
+    mesh(new THREE.BoxGeometry(.4,.3,.4), M(0xc49a63,{roughness:.9}), 1.3,.55,-.45, g);
+  })();
+  function makeSign(){
+    const c = document.createElement("canvas"); c.width = c.height = 256; const x = c.getContext("2d");
+    x.fillStyle = "#1D5AA6"; x.beginPath(); x.arc(128,128,124,0,Math.PI*2); x.fill();
+    x.fillStyle = "#fff"; x.save(); x.translate(128,140); x.scale(4.2,4.2); x.translate(-20,-20);
+    x.fill(new Path2D("M14 30v-9.5c0-1 .8-1.8 1.8-1.8s1.7.8 1.7 1.8V22V12.6c0-1 .8-1.8 1.8-1.8s1.7.8 1.7 1.8V21v-9.8c0-1 .8-1.8 1.8-1.8s1.8.8 1.8 1.8V21v-8c0-1 .8-1.7 1.7-1.7s1.8.8 1.8 1.7v11c0 4-2.6 7-6.6 7h-1.6c-2.2 0-3.6-.7-4.8-2.2L9.8 23.6c-.6-.8-.4-1.9.4-2.4s1.8-.3 2.4.4L14 23.4"));
+    x.restore(); return c;
+  }
+  // Cortes
+  props.cortes = new THREE.Group(); props.cortes.position.z = .62; scene.add(props.cortes);
+  (function(){
+    const g = props.cortes; table(g);
+    const sheet = mesh(new THREE.BoxGeometry(.9,.012,.42), M(0xc9d1d8,{metalness:.85,roughness:.25}), -.15,.995,0, g); sheet.rotation.y = .1;
+    for(let i=0;i<7;i++){ const b = mesh(new THREE.ConeGeometry(.012,.03,4), M(0xdfe5ea,{metalness:.9,roughness:.2}), -.58+i*.12,1.0,.2, g); b.rotation.z = Math.PI/2; }
+    const knife = new THREE.Group(); knife.position.set(.55,1.0,.05); knife.rotation.y = -.5; g.add(knife);
+    mesh(new THREE.BoxGeometry(.2,.035,.05), M(0xF2B705), 0,0,0, knife); mesh(new THREE.BoxGeometry(.07,.008,.035), M(0xe8eef2,{metalness:.9,roughness:.15}), .13,0,0, knife);
+    mesh(new THREE.BoxGeometry(.45,.32,.35), M(0xb68a52,{roughness:.9}), .45,1.15,-.1, g);
+  })();
+  // Atrapamiento
+  props.atrapamiento = new THREE.Group(); props.atrapamiento.position.z = .7; scene.add(props.atrapamiento);
+  const rollers = []; let beltSpeed = 0, beltTarget = 1; let lockGroup, box;
+  (function(){
+    const g = props.atrapamiento;
+    const frame = M(0x2f6f4f,{roughness:.5,metalness:.3});
+    mesh(new THREE.BoxGeometry(2.2,.06,.08), frame, 0,.92,-.28, g); mesh(new THREE.BoxGeometry(2.2,.06,.08), frame, 0,.92,.28, g);
+    [-1,1].forEach(sx=>[-.28,.28].forEach(z=>mesh(new THREE.BoxGeometry(.07,.9,.07), frame, sx*1.0,.45,z, g)));
+    for(let i=0;i<11;i++){ const r = mesh(new THREE.CylinderGeometry(.05,.05,.52,16), M(0xb9c2ca,{metalness:.8,roughness:.25}), -1+i*.2,.95,0, g); r.rotation.x = Math.PI/2; rollers.push(r);
+      const st = mesh(new THREE.BoxGeometry(.012,.012,.5), M(0x333a40), 0,.05,0, r); st.rotation.x = -Math.PI/2; st.position.set(0,0,.05); }
+    box = mesh(new THREE.BoxGeometry(.32,.18,.3), M(0xb68a52,{roughness:.9}), .05,1.09,0, g); box.rotation.y = .3;
+    // paro de emergencia + candado
+    const cab = new THREE.Group(); cab.position.set(1.25,0,0); g.add(cab);
+    mesh(new THREE.BoxGeometry(.1,1.1,.1), M(0x707a84,{metalness:.5}), 0,.55,0, cab);
+    mesh(new THREE.BoxGeometry(.24,.28,.16), M(0xF2B705), 0,1.2,0, cab);
+    mesh(new THREE.CylinderGeometry(.06,.06,.05,18), M(0xd3261c,{roughness:.4}), 0,1.22,.1, cab).rotation.x = Math.PI/2;
+    lockGroup = new THREE.Group(); lockGroup.position.set(0,1.0,.1); cab.add(lockGroup);
+    mesh(new THREE.BoxGeometry(.09,.08,.04), M(0xd3261c), 0,0,0, lockGroup);
+    const shk = mesh(new THREE.TorusGeometry(.03,.008,8,16,Math.PI), M(0xcfd6dc,{metalness:.9,roughness:.2}), 0,.04,0, lockGroup);
+    mesh(new THREE.BoxGeometry(.08,.12,.005), M(0xF2B705), 0,-.11,.01, lockGroup);
+    lockGroup.visible = false;
+  })();
+  // Químicos
+  props.quimicos = new THREE.Group(); props.quimicos.position.z = .62; scene.add(props.quimicos);
+  let drops = [];
+  (function(){
+    const g = props.quimicos; table(g);
+    const drum = mesh(new THREE.CylinderGeometry(.28,.28,.85,28), M(0x1f5fad,{roughness:.4,metalness:.2}), -1.15,.43,-.1, g);
+    [.15,.7].forEach(y=>mesh(new THREE.TorusGeometry(.282,.015,8,28), M(0x174a88), -1.15,y,-.1, g).rotation.x = Math.PI/2);
+    const pt = new THREE.CanvasTexture(makeGHS()); pt.encoding = THREE.sRGBEncoding;
+    const lbl = mesh(new THREE.PlaneGeometry(.26,.26), new THREE.MeshStandardMaterial({map:pt,transparent:true,roughness:.5}), -1.15,.5,.185, g); lbl.rotation.y = .0;
+    lbl.position.set(-1.15+.0,.5,.182);
+    const jug = mesh(new THREE.CylinderGeometry(.11,.12,.28,20), M(0xf1f3f5,{roughness:.6}), .2,1.13,0, g);
+    mesh(new THREE.CylinderGeometry(.035,.035,.05,12), M(0x2b2b2b), .2,1.3,0, g);
+    const fun = mesh(new THREE.ConeGeometry(.09,.14,20,1,true), M(0x3aa0a0,{side:THREE.DoubleSide,roughness:.4}), -.15,1.06,.05, g); fun.rotation.x = Math.PI;
+    const dm = new THREE.MeshStandardMaterial({color:0x7fd858,emissive:0x2c5d18,roughness:.2,transparent:true,opacity:.9});
+    for(let i=0;i<26;i++){ const d = mesh(new THREE.SphereGeometry(.018,8,6), dm, 0,-5,0, scene); d.castShadow = false; drops.push({m:d,v:new THREE.Vector3(),life:0}); }
+  })();
+  function makeGHS(){
+    const c = document.createElement("canvas"); c.width = c.height = 256; const x = c.getContext("2d");
+    x.translate(128,128); x.rotate(Math.PI/4); x.fillStyle="#fff"; x.fillRect(-84,-84,168,168); x.lineWidth = 16; x.strokeStyle="#D3261C"; x.strokeRect(-84,-84,168,168);
+    x.rotate(-Math.PI/4); x.fillStyle="#111";
+    x.save(); x.rotate(-.5); x.fillRect(-62,-46,22,40); x.restore(); x.save(); x.rotate(.5); x.fillRect(40,-46,22,40); x.restore();
+    x.beginPath(); x.arc(-34,10,7,0,7); x.arc(30,10,7,0,7); x.fill(); x.fillRect(-56,32,40,12); x.fillRect(12,32,46,12);
+    return c;
+  }
+  // Partículas de impacto
+  const sparks = [];
+  for(let i=0;i<24;i++){ const s = new THREE.Mesh(new THREE.SphereGeometry(.016,6,5), new THREE.MeshBasicMaterial({color:0xff3b30})); s.visible = false; scene.add(s); sparks.push({m:s,v:new THREE.Vector3(),life:0}); }
+  function burst(pos, color){ sparks.forEach(p=>{ p.m.material.color.set(color); p.m.position.copy(pos); p.v.set((Math.random()-.5)*2.2,Math.random()*2.2,(Math.random()-.5)*2.2); p.life = .7+Math.random()*.4; p.m.visible = true; }); }
+  function pour(on){ drops.forEach((d,i)=>{ d.life = on ? -(i*.06) : 0; if(!on) d.m.position.y = -5; }); }
+
+  let sceneId = "intro";
+  api.setScene = id => {
+    sceneId = id;
+    Object.keys(props).forEach(k => props[k].visible = (k === id));
+    if(id === "atrapamiento"){ beltTarget = 1; lockGroup.visible = false; }
+    pour(false); hurt = 0; hand(1).halo.material.opacity = 0;
+  };
+  function hand(s){ return arms[s]; }
+
+  let halo = {s:1, color:0xff3b30, t:0};
+  function glow(color){ halo = {s:1, color, t:1.6}; }
+  let shakeT = 0;
+  api.play = (id, o, done) => {
+    W.rotation.y = 0;
+    const wrong = !o.ok;
+    if(o.glove !== "none"){ api.pose("show"); later(150, ()=>api.setGlove(o.glove)); if(o.goggles) later(450, ()=>api.goggles(true)); }
+    const lead = o.glove !== "none" ? 1100 : 200;
+    if(id === "cortes"){
+      later(lead, ()=>api.pose("work"));
+      if(wrong){ later(lead+900, ()=>{ api.pose("hurt"); hurtHand(o.glove==="none"||o.glove==="cotton"); flash("bad"); }); later(lead+2300, done); }
+      else { later(lead+900, ()=>{ glow(0x2ecc71); flash("good"); }); later(lead+1900, ()=>{ api.pose("show"); done(); }); }
+    } else if(id === "atrapamiento"){
+      if(wrong){ later(lead, ()=>api.pose("reach")); later(lead+800, ()=>{ api.pose("hurt"); hurtHand(true); flash("bad"); shakeT = .5; }); later(lead+2300, done); }
+      else { later(lead, ()=>api.pose("lock")); later(lead+700, ()=>{ beltTarget = 0; lockGroup.visible = true; }); later(lead+1700, ()=>{ api.pose("work"); glow(0x2ecc71); flash("good"); }); later(lead+2700, done); }
+    } else if(id === "quimicos"){
+      later(lead, ()=>{ api.pose("work"); pour(true); });
+      if(wrong){ later(lead+1300, ()=>{ api.pose("hurt"); hurtHand(true); flash("bad"); }); later(lead+2600, ()=>{ pour(false); done(); }); }
+      else { later(lead+1300, ()=>{ glow(0x2ecc71); flash("good"); }); later(lead+2400, ()=>{ pour(false); api.pose("show"); done(); }); }
+    }
+  };
+  function hurtHand(skinShows){
+    const wp = new THREE.Vector3(); arms[1].wr.getWorldPosition(wp);
+    burst(wp, sceneId==="quimicos" ? 0x9be15d : 0xd62d20);
+    glow(0xff3b30); if(skinShows) hurt = 1;
+  }
+
+  /* ---------- Cámara y control ---------- */
+  let yaw = .45, yawVel = 0, dragging = false, lastX = 0;
+  canvas.addEventListener("pointerdown", e => { dragging = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointermove", e => { if(!dragging) return; const dx = e.clientX - lastX; lastX = e.clientX; yaw -= dx * .008; yawVel = -dx*.008; });
+  ["pointerup","pointercancel"].forEach(t => canvas.addEventListener(t, () => dragging = false));
+  function resize(){
+    const r = stage.getBoundingClientRect(); const w = Math.max(1,r.width), hh = Math.max(1,r.height);
+    renderer.setSize(w, hh, false); camera.aspect = w/hh; camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+
+  /* ---------- Bucle ---------- */
+  const clock = new THREE.Clock(); let t = 0, blink = 0, nextBlink = 2;
+  const L = (a,b,k) => a + (b-a)*k;
+  function frame(){
+    const dt = Math.min(clock.getDelta(), .05); t += dt;
+    const k = 1 - Math.pow(.0025, dt);        // suavizado independiente de los fps
+    // pose
+    ["l","r"].forEach(side => { for(let i=0;i<4;i++) cur[side][i] = L(cur[side][i], target[side][i], k); });
+    cur.t = L(cur.t, target.t, k); cur.hd[0] = L(cur.hd[0], target.hd[0], k); cur.hd[1] = L(cur.hd[1], target.hd[1], k); cur.y = L(cur.y, target.y, k);
+    const breath = Math.sin(t*1.8)*.012;
+    const amp = reduceMotion ? .3 : 1;
+    [["l",-1],["r",1]].forEach(([side,s]) => {
+      const a = arms[s], p = cur[side];
+      a.sh.rotation.set(p[0] + breath*2, p[1], p[2] + s*Math.sin(t*1.8)*.015);
+      a.el.rotation.set(p[3], 0, 0);
+    });
+    if(target.wave){ arms[1].sh.rotation.z += Math.sin(t*7)*.22*amp; arms[1].el.rotation.z = Math.sin(t*7+1)*.25*amp; } else arms[1].el.rotation.z = L(arms[1].el.rotation.z, 0, k);
+    if(target === P.work){ arms[1].wr.rotation.x = Math.sin(t*5)*.25*amp; arms[-1].wr.rotation.x = Math.sin(t*5+2)*.15*amp; } else { arms[1].wr.rotation.x = L(arms[1].wr.rotation.x,0,k); arms[-1].wr.rotation.x = L(arms[-1].wr.rotation.x,0,k); }
+    torso.rotation.x = cur.t + breath; torso.position.y = breath*.5;
+    head.rotation.x = cur.hd[0]; head.rotation.y = cur.hd[1] + Math.sin(t*.6)*.05*amp;
+    W.rotation.y = L(W.rotation.y, cur.y, k*.6);
+    hips.position.y = 1.0 + Math.abs(Math.sin(t*1.8))*.006;
+    let sx = 0; if(target.shake){ sx = Math.sin(t*40)*.012*amp; } W.position.x = sx;
+    // parpadeo
+    blink -= dt; nextBlink -= dt; if(nextBlink < 0){ blink = .12; nextBlink = 2 + Math.random()*3; }
+    eyes.forEach(e => e.scale.y = blink > 0 ? .15 : 1);
+    mouth.rotation.z = target === P.hurt ? 0 : Math.PI; mouth.position.y = target === P.hurt ? -.01 : .02;
+    // mano lastimada
+    if(hurt > 0 && !arms[1].cuff.visible){ mat.hand.color.copy(skinColor).lerp(hurtColor, .55 + Math.sin(t*6)*.15); }
+    // halo
+    if(halo.t > 0){ halo.t -= dt; [1,-1].forEach(s=>{ const m = arms[s].halo.material; m.color.set(halo.color); m.opacity = Math.max(0, Math.min(.45, halo.t*.4)) * (.6+.4*Math.sin(t*10)); arms[s].halo.scale.setScalar(1+Math.sin(t*6)*.1); }); }
+    else [1,-1].forEach(s=>arms[s].halo.material.opacity = 0);
+    // banda
+    beltSpeed = L(beltSpeed, beltTarget, k*.5);
+    rollers.forEach(r => r.rotation.y -= beltSpeed*dt*6);
+    if(box) box.position.x = .05 + Math.sin(t*3)*.015*beltSpeed;
+    // gotas
+    drops.forEach(d => {
+      if(d.life < 0){ d.life += dt; if(d.life >= 0){ d.m.position.set(.2 + (Math.random()-.5)*.05, 1.32, .62); d.v.set(-.6-Math.random()*.3, .6+Math.random()*.4, (Math.random()-.5)*.4); d.life = .001; } return; }
+      if(d.life > 0){ d.life += dt; d.v.y -= 6*dt; d.m.position.addScaledVector(d.v, dt); if(d.m.position.y < 1.0){ d.life = -(.2+Math.random()*.3); d.m.position.y = -5; } }
+    });
+    // chispas
+    sparks.forEach(p => { if(p.life > 0){ p.life -= dt; p.v.y -= 5*dt; p.m.position.addScaledVector(p.v, dt); p.m.scale.setScalar(Math.max(.01,p.life)); if(p.life <= 0) p.m.visible = false; } });
+    // cámara
+    if(!dragging){ yaw += yawVel; yawVel *= .92; }
+    yaw = Math.max(-1.3, Math.min(1.6, yaw));
+    if(shakeT > 0) shakeT -= dt;
+    const portrait = camera.aspect < 1.15, dist = portrait ? 6.1 : 5.0;
+    const lookY = portrait ? 1.25 : 1.3;
+    camera.position.set(Math.sin(yaw)*dist + (shakeT>0?Math.sin(t*60)*.04:0), 2.4 + Math.sin(t*.4)*.04*amp, Math.cos(yaw)*dist);
+    camera.lookAt(0, lookY, .2);
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  api.setScene("intro");
+  requestAnimationFrame(frame);
+  return api;
+})();
+
+go("intro");
+Store.init();
+})();
+</script>
+</body>
+</html>
